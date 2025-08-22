@@ -1,0 +1,62 @@
+# Dipendenze per AdvancedSnmp
+# ===============================
+
+# Crittografia per SNMPv3
+pycryptodome>=3.15.0
+
+# Dipendenze opzionali per esempi avanzati
+# ========================================
+
+# Per esempi con threading e multiprocessing
+# (inclusi in Python standard library)
+
+# Per logging avanzato
+# (incluso in Python standard library)
+
+# Per network operations
+# ipaddress - incluso in Python 3.3+
+
+# Dipendenze di sviluppo (opzionali)
+# ==================================
+# Decommenta se stai sviluppando la libreria
+
+# pytest>=6.0.0                    # Test framework alternativo
+# pytest-cov>=2.10.0               # Coverage per pytest  
+# black>=21.0.0                    # Code formatter
+# flake8>=3.8.0                    # Linter
+# mypy>=0.800                      # Type checker
+# sphinx>=4.0.0                    # Documentazione
+# sphinx-rtd-theme>=0.5.0          # Tema documentazione
+
+# Dipendenze per esempi specifici (opzionali)
+# ===========================================
+# Decommenta solo se usi gli esempi corrispondenti
+
+# matplotlib>=3.3.0                # Per grafici negli esempi
+# numpy>=1.20.0                    # Per analisi dati avanzata
+# pandas>=1.2.0                    # Per manipolazione dati
+# requests>=2.25.0                 # Per notifiche HTTP negli esempi
+# psutil>=5.8.0                    # Per monitoring sistema negli esempi
+
+# Note di installazione
+# ====================
+# 
+# Installazione base (solo libreria):
+# pip install pycryptodome
+#
+# Installazione per sviluppo:
+# pip install -r requirements.txt
+# 
+# Installazione con esempi avanzati:
+# pip install pycryptodome matplotlib numpy pandas requests psutil
+#
+# Per sistemi Windows, potresti aver bisogno di:
+# pip install --upgrade setuptools wheel
+#
+# Per macOS con M1/M2, usa:
+# pip install --upgrade pip setuptools wheel
+# 
+# Su alcuni sistemi Linux potresti aver bisogno di:
+# sudo apt-get install python3-dev build-essential
+# 
+# Versioni Python supportate: 3.7+
