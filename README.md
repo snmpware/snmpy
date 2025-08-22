@@ -1,22 +1,22 @@
 # SNMPY
 
-Una libreria SNMP completa e avanzata per Python che supporta SNMPv1, SNMPv2c e SNMPv3 con autenticazione e crittografia.
+A complete and advanced SNMP library for Python that supports SNMPv1, SNMPv2c and SNMPv3 with authentication and encryption.
 
-## 🚀 Caratteristiche
+## 🚀 Features
 
-- **Supporto completo per SNMPv1, SNMPv2c e SNMPv3**
-- **SNMPv3 Security**: Autenticazione (MD5, SHA, SHA224, SHA256, SHA384, SHA512) e Privacy (DES, AES128, AES192, AES256)
-- **Operazioni SNMP complete**: GET, GETNEXT, GETBULK, SET, WALK
-- **Monitoraggio UPS specializzato** con supporto per APC, Eaton, CyberPower
-- **Codifica/decodifica ASN.1 BER nativa**
-- **Gestione automatica del discovery SNMPv3**
-- **Logging integrato** per debugging
-- **Interface CLI** per monitoraggio UPS
-- **Context manager support** per gestione automatica delle connessioni
+- **Full support for SNMPv1, SNMPv2c and SNMPv3**
+- **SNMPv3 Security**: Authentication (MD5, SHA, SHA224, SHA256, SHA384, SHA512) and Privacy (DES, AES128, AES192, AES256)
+- **Complete SNMP operations**: GET, GETNEXT, GETBULK, SET, WALK
+- **Specialized UPS monitoring** with support for APC, Eaton, CyberPower
+- **Native ASN.1 BER encoding/decoding**
+- **Automatic SNMPv3 discovery management**
+- **Integrated logging** for debugging
+- **CLI interface** for UPS monitoring
+- **Context manager support** for automatic connection management
 
-## 📦 Installazione
+## 📦 Installation
 
-### Dipendenze
+### Dependencies
 
 ```bash
 pip install pycryptodome
@@ -24,31 +24,31 @@ pip install pycryptodome
 
 ### Download
 
-Scarica il file `snmpy.py` e inseriscilo nel tuo progetto:
+Download the `snmpy.py` file and include it in your project:
 
 ```python
 from snmpy import SnmpClient, SnmpVersion, SnmpV3User, SnmpV3AuthProtocol, SnmpV3PrivProtocol
 ```
 
-## 🔧 Uso Base
+## 🔧 Basic Usage
 
-### SNMPv2c Semplice
+### Simple SNMPv2c
 
 ```python
 from snmpy import SnmpClient, SnmpVersion
 
-# Crea un client SNMPv2c
+# Create an SNMPv2c client
 client = SnmpClient(
     host="192.168.1.100",
     community="public",
     version=SnmpVersion.V2C
 )
 
-# GET singolo
+# Single GET
 result = client.get("1.3.6.1.2.1.1.1.0")  # sysDescr
 print(result)
 
-# GET multipli
+# Multiple GETs
 results = client.get_multiple([
     "1.3.6.1.2.1.1.1.0",  # sysDescr
     "1.3.6.1.2.1.1.3.0",  # sysUpTime
@@ -57,12 +57,12 @@ for oid, value in results.items():
     print(f"{oid} = {value}")
 ```
 
-### SNMPv3 con Autenticazione e Privacy
+### SNMPv3 with Authentication and Privacy
 
 ```python
 from snmpy import SnmpClient, SnmpVersion, SnmpV3User, SnmpV3AuthProtocol, SnmpV3PrivProtocol
 
-# Crea un utente SNMPv3
+# Create an SNMPv3 user
 user = SnmpV3User(
     username="admin",
     auth_protocol=SnmpV3AuthProtocol.SHA256,
@@ -71,14 +71,14 @@ user = SnmpV3User(
     priv_password="privpassword123"
 )
 
-# Crea un client SNMPv3
+# Create an SNMPv3 client
 client = SnmpClient(
     host="192.168.1.100",
     version=SnmpVersion.V3,
     v3_user=user
 )
 
-# L'engine discovery avviene automaticamente
+# Engine discovery happens automatically
 result = client.get("1.3.6.1.2.1.1.1.0")
 print(result)
 ```
@@ -86,12 +86,12 @@ print(result)
 ### SNMP Walk
 
 ```python
-# Walk su un sottoalbero MIB
+# Walk a MIB subtree
 results = client.walk("1.3.6.1.2.1.2.2.1.2")  # ifDescr
 for oid, value in results.items():
     print(f"{oid} = {value}")
 
-# Bulk Walk (più efficiente per SNMPv2c/v3)
+# Bulk Walk (more efficient for SNMPv2c/v3)
 results = client.bulk_walk("1.3.6.1.2.1.2.2.1.2", max_repetitions=20)
 ```
 
@@ -100,52 +100,52 @@ results = client.bulk_walk("1.3.6.1.2.1.2.2.1.2", max_repetitions=20)
 ```python
 from snmpy import SnmpOctetString, SnmpInteger
 
-# SET singolo
-success = client.set("1.3.6.1.2.1.1.6.0", SnmpOctetString("Nuovo location"))
+# Single SET
+success = client.set("1.3.6.1.2.1.1.6.0", SnmpOctetString("New location"))
 
-# SET multipli
+# Multiple SETs
 success = client.set_multiple({
     "1.3.6.1.2.1.1.6.0": SnmpOctetString("Data Center"),
     "1.3.6.1.2.1.1.4.0": SnmpOctetString("admin@example.com")
 })
 ```
 
-## 🔋 Monitoraggio UPS
+## 🔋 UPS Monitoring
 
-### Uso Base
+### Basic Usage
 
 ```python
 from snmpy import UpsMonitor, SnmpVersion
 
-# Monitor UPS con SNMPv2c
+# Monitor UPS with SNMPv2c
 monitor = UpsMonitor(
     host="192.168.1.200",
     community="public",
     version=SnmpVersion.V2C
 )
 
-# Test connessione
+# Test connection
 if monitor.test_connection():
-    print("Connessione UPS OK")
+    print("UPS connection OK")
 
-# Ottieni informazioni UPS
+# Get UPS information
 info = monitor.get_ups_info()
-print(f"Carico: {info['load']}%")
-print(f"Batteria: {info['battery_charge']}%")
-print(f"Stato: {monitor.interpret_status(info['ups_status'])}")
+print(f"Load: {info['load']}%")
+print(f"Battery: {info['battery_charge']}%")
+print(f"Status: {monitor.interpret_status(info['ups_status'])}")
 ```
 
-### Monitoraggio Continuo
+### Continuous Monitoring
 
 ```python
-# Monitoraggio continuo (ogni 5 secondi)
+# Continuous monitoring (every 5 seconds)
 monitor.monitor(interval=5.0)
 
-# Monitoraggio per 1 ora
+# Monitor for 1 hour
 monitor.monitor(interval=5.0, duration=3600)
 ```
 
-### UPS con SNMPv3
+### UPS with SNMPv3
 
 ```python
 from snmpy import UpsMonitor, SnmpVersion, SnmpV3User, SnmpV3AuthProtocol
@@ -165,21 +165,21 @@ monitor = UpsMonitor(
 monitor.monitor()
 ```
 
-## 🖥️ Interface a Riga di Comando
+## 🖥️ Command Line Interface
 
-### Monitoraggio UPS
+### UPS Monitoring
 
 ```bash
-# SNMPv2c di base
+# Basic SNMPv2c
 python snmpy.py --ip 192.168.1.200 --version 2 --community public
 
-# SNMPv3 con autenticazione
+# SNMPv3 with authentication
 python snmpy.py --ip 192.168.1.200 --version 3 \
     --v3-user admin \
     --v3-auth-protocol SHA256 \
     --v3-auth-password mypassword
 
-# SNMPv3 con autenticazione e privacy
+# SNMPv3 with authentication and privacy
 python snmpy.py --ip 192.168.1.200 --version 3 \
     --v3-user admin \
     --v3-auth-protocol SHA256 \
@@ -187,19 +187,19 @@ python snmpy.py --ip 192.168.1.200 --version 3 \
     --v3-priv-protocol AES256 \
     --v3-priv-password privpass
 
-# Test connessione
+# Test connection
 python snmpy.py --ip 192.168.1.200 --test
 
-# SNMP Walk per scoprire OID
+# SNMP Walk to discover OIDs
 python snmpy.py --ip 192.168.1.200 --walk
 
-# Monitoraggio con intervallo personalizzato
+# Monitoring with custom interval
 python snmpy.py --ip 192.168.1.200 --interval 10 --duration 300
 ```
 
-## 📊 Tipi di Dati SNMP Supportati
+## 📊 Supported SNMP Data Types
 
-La libreria supporta tutti i tipi di dati SNMP standard:
+The library supports all standard SNMP data types:
 
 ```python
 from snmpy import (
@@ -208,7 +208,7 @@ from snmpy import (
     SnmpTimeTicks, SnmpOpaque, SnmpCounter64
 )
 
-# Esempi di creazione
+# Creation examples
 integer_val = SnmpInteger(42)
 string_val = SnmpOctetString("Hello World")
 oid_val = SnmpObjectIdentifier("1.3.6.1.2.1.1.1.0")
@@ -216,15 +216,15 @@ ip_val = SnmpIpAddress("192.168.1.1")
 counter_val = SnmpCounter32(1234567)
 ```
 
-## 🔐 Configurazioni di Sicurezza SNMPv3
+## 🔐 SNMPv3 Security Configurations
 
-### Livelli di Sicurezza
+### Security Levels
 
-1. **noAuthNoPriv**: Nessuna autenticazione, nessuna privacy
-2. **authNoPriv**: Solo autenticazione
-3. **authPriv**: Autenticazione + Privacy
+1. **noAuthNoPriv**: No authentication, no privacy
+2. **authNoPriv**: Authentication only
+3. **authPriv**: Authentication + Privacy
 
-### Protocolli di Autenticazione
+### Authentication Protocols
 
 - MD5
 - SHA
@@ -233,17 +233,17 @@ counter_val = SnmpCounter32(1234567)
 - SHA384
 - SHA512
 
-### Protocolli di Privacy
+### Privacy Protocols
 
 - DES
 - AES128
 - AES192
 - AES256
 
-### Esempio Configurazione Completa
+### Complete Configuration Example
 
 ```python
-# Configurazione massima sicurezza
+# Maximum security configuration
 user = SnmpV3User(
     username="secureuser",
     auth_protocol=SnmpV3AuthProtocol.SHA512,
@@ -256,11 +256,11 @@ user = SnmpV3User(
 ## 🏗️ Context Manager
 
 ```python
-# Gestione automatica della connessione
+# Automatic connection management
 with SnmpClient(host="192.168.1.100", community="public") as client:
     result = client.get("1.3.6.1.2.1.1.1.0")
     print(result)
-# La connessione viene chiusa automaticamente
+# Connection is automatically closed
 ```
 
 ## 🐛 Debugging
@@ -268,40 +268,40 @@ with SnmpClient(host="192.168.1.100", community="public") as client:
 ```python
 import logging
 
-# Abilita logging dettagliato
+# Enable detailed logging
 logging.basicConfig(level=logging.DEBUG)
 
-# O usa il flag --debug nella CLI
+# Or use the --debug flag in CLI
 python snmpy.py --ip 192.168.1.200 --debug
 ```
 
-## 🔍 Esempi Avanzati
+## 🔍 Advanced Examples
 
-### Discovery Automatico UPS
+### Automatic UPS Discovery
 
 ```python
 monitor = UpsMonitor("192.168.1.200")
 ups_type = monitor.detect_ups_type()
-print(f"Tipo UPS rilevato: {ups_type}")
+print(f"Detected UPS type: {ups_type}")
 
-# Walk completo della MIB UPS
+# Complete walk of UPS MIB
 mib_data = monitor.walk_mib("1.3.6.1.2.1.33")
 for oid, value in mib_data.items():
     print(f"{oid} = {value}")
 ```
 
-### Gestione Errori
+### Error Handling
 
 ```python
 try:
     result = client.get("1.3.6.1.2.1.1.1.0")
     if result is None:
-        print("OID non trovato o errore di comunicazione")
+        print("OID not found or communication error")
 except Exception as e:
-    print(f"Errore: {e}")
+    print(f"Error: {e}")
 ```
 
-### Monitoraggio Multi-UPS
+### Multi-UPS Monitoring
 
 ```python
 ups_list = [
@@ -318,54 +318,54 @@ for ups_config in ups_list:
 
 ## 📝 Logging
 
-La libreria include logging dettagliato per debugging:
+The library includes detailed logging for debugging:
 
 ```python
 import logging
 logging.getLogger("Snmpy").setLevel(logging.INFO)
 ```
 
-Livelli di log:
-- `DEBUG`: Dettagli completi della comunicazione SNMP
-- `INFO`: Operazioni principali
-- `WARNING`: Problemi non critici
-- `ERROR`: Errori di comunicazione
+Log levels:
+- `DEBUG`: Complete SNMP communication details
+- `INFO`: Main operations
+- `WARNING`: Non-critical issues
+- `ERROR`: Communication errors
 
-## 🤝 Supporto UPS
+## 🤝 UPS Support
 
-La libreria include supporto specializzato per:
+The library includes specialized support for:
 
-- **APC UPS** (OID Enterprise 318)
-- **Eaton UPS** (OID Enterprise 534)
-- **CyberPower UPS** (OID Enterprise 3808)
-- **UPS Standard RFC 1628**
+- **APC UPS** (Enterprise OID 318)
+- **Eaton UPS** (Enterprise OID 534)
+- **CyberPower UPS** (Enterprise OID 3808)
+- **Standard RFC 1628 UPS**
 
-Il rilevamento del tipo UPS avviene automaticamente.
+UPS type detection happens automatically.
 
-## ⚠️ Note di Sicurezza
+## ⚠️ Security Notes
 
-- **Non utilizzare password deboli** per SNMPv3
-- **Evita community string predefiniti** come "public" in produzione
-- **Usa sempre HTTPS/VPN** per reti non sicure
-- **Limita l'accesso SNMP** con firewall/ACL
-- **Monitora i log** per tentativi di accesso non autorizzati
+- **Don't use weak passwords** for SNMPv3
+- **Avoid default community strings** like "public" in production
+- **Always use HTTPS/VPN** for insecure networks
+- **Limit SNMP access** with firewall/ACLs
+- **Monitor logs** for unauthorized access attempts
 
-## 📄 Licenza
+## 📄 License
 
-MIT License - Vedi LICENSE file per dettagli.
+MIT License - See LICENSE file for details.
 
-## 🛠️ Contribuire
+## 🛠️ Contributing
 
-1. Fork del repository
-2. Crea un branch per la tua feature
-3. Commit delle modifiche
-4. Push al branch
-5. Crea una Pull Request
+1. Fork the repository
+2. Create a branch for your feature
+3. Commit your changes
+4. Push to the branch
+5. Create a Pull Request
 
-## 📞 Supporto
+## 📞 Support
 
-Per bug, feature request o domande, apri una issue su GitHub.
+For bugs, feature requests or questions, open an issue on GitHub.
 
 ---
 
-**Snmpy** - Una libreria SNMP potente e flessibile per Python 🐍
+**Snmpy** - A powerful and flexible SNMP library for Python 🐍
