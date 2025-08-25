@@ -655,13 +655,13 @@ MIT License - See LICENSE file for details.
 ## 📞 Support
 
 For bugs, feature requests, or questions:
-- Open an issue on [GitHub](https://github.com/yourusername/snmpy)
+- Open an issue on [GitHub](https://github.com/JustVugg/snmpy)
 - Check existing issues before creating new ones
 - Include debug logs when reporting bugs
 
 ## 🌟 Examples Repository
 
-Find more examples and use cases at: [snmpy-examples](https://github.com/yourusername/snmpy-examples)
+Find more examples and use cases at: [snmpy-examples](https://github.com/JustVugg/snmpy/examples)
 
 ---
 
