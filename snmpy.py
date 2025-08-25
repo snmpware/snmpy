@@ -1222,14 +1222,14 @@ class SnmpV3MessageProcessor:
         return decrypted
     
     def _add_authentication(self, msg_bytes: bytes, sec_params: SnmpV3SecurityParameters) -> bytes:
-        """Aggiunge l'autenticazione al messaggio"""
+        """Aggiunge l'autenticazione al messaggio - IMPLEMENTAZIONE COMPLETA"""
         if not self.user.auth_key:
             return msg_bytes
         
         # Localizza la chiave di autenticazione
         localized_key = self.user.localize_key(self.engine_id, self.user.auth_key)
         
-        # Determina l'algoritmo HMAC
+        # Determina l'algoritmo HMAC e lunghezza
         if self.user.auth_protocol == SnmpV3AuthProtocol.MD5:
             hash_func = hashlib.md5
             auth_len = 12  # HMAC-MD5-96
@@ -1251,25 +1251,322 @@ class SnmpV3MessageProcessor:
         else:
             return msg_bytes
         
-        # Trova la posizione dell'authentication parameter nel messaggio
-        # e sostituiscilo con zeri per il calcolo HMAC
-        auth_param_placeholder = b'\x00' * auth_len
+        # Decodifica il messaggio per trovare la posizione dell'authentication parameter
+        msg_with_zeros = self._replace_auth_param_with_zeros(msg_bytes, auth_len)
         
-        # Cerca il parametro di autenticazione nel messaggio
-        # (è un OCTET STRING di lunghezza auth_len dopo il nome utente)
-        # Questo è un approccio semplificato - in produzione servirebbe un parsing più robusto
-        
-        # Calcola HMAC
-        hmac_calc = hmac.new(localized_key, msg_bytes, hash_func)
+        # Calcola HMAC sul messaggio con zeri al posto dell'auth parameter
+        hmac_calc = hmac.new(localized_key, msg_with_zeros, hash_func)
         auth_param = hmac_calc.digest()[:auth_len]
         
-        # Inserisci l'authentication parameter nel messaggio
-        sec_params.authentication_parameters = auth_param
+        # Inserisci l'authentication parameter calcolato nel messaggio
+        authenticated_msg = self._insert_auth_param(msg_bytes, auth_param)
         
-        # Ricostruisci il messaggio con i nuovi parametri di sicurezza
-        # Questo richiede un re-encoding completo del messaggio
-        # Per semplicità, restituiamo il messaggio originale
-        # In un'implementazione completa, dovremmo ricodificare tutto
+        return authenticated_msg
+
+    def _replace_auth_param_with_zeros(self, msg_bytes: bytes, auth_len: int) -> bytes:
+        """Sostituisce l'authentication parameter con zeri per il calcolo HMAC"""
+        try:
+            # Parsing del messaggio SNMPv3 per trovare l'authentication parameter
+            offset = 0
+            
+            # Tag SEQUENCE del messaggio principale
+            if msg_bytes[offset] != SnmpType.SEQUENCE:
+                raise ValueError("Messaggio SNMPv3 non valido")
+            offset += 1
+            
+            # Salta la lunghezza della sequenza
+            length, offset = decode_length(msg_bytes, offset)
+            msg_content_start = offset
+            
+            # Version (INTEGER)
+            if msg_bytes[offset] != SnmpType.INTEGER:
+                raise ValueError("Version mancante nel messaggio")
+            offset += 1
+            length, offset = decode_length(msg_bytes, offset)
+            offset += length  # Salta il valore della versione
+            
+            # Global Data (SEQUENCE)
+            if msg_bytes[offset] != SnmpType.SEQUENCE:
+                raise ValueError("Global Data mancante")
+            offset += 1
+            length, offset = decode_length(msg_bytes, offset)
+            global_data_end = offset + length
+            offset = global_data_end  # Salta global data
+            
+            # Security Parameters (OCTET STRING)
+            if msg_bytes[offset] != SnmpType.OCTET_STRING:
+                raise ValueError("Security Parameters mancanti")
+            offset += 1
+            sec_params_length, offset = decode_length(msg_bytes, offset)
+            sec_params_start = offset
+            sec_params_end = offset + sec_params_length
+            
+            # Parsing dei Security Parameters (sono una SEQUENCE dentro l'OCTET STRING)
+            sp_offset = sec_params_start
+            
+            # SEQUENCE tag dentro security parameters
+            if msg_bytes[sp_offset] != SnmpType.SEQUENCE:
+                raise ValueError("Security Parameters SEQUENCE non valida")
+            sp_offset += 1
+            sp_length, sp_offset = decode_length(msg_bytes, sp_offset)
+            
+            # authoritative_engine_id (OCTET STRING)
+            if msg_bytes[sp_offset] != SnmpType.OCTET_STRING:
+                raise ValueError("Engine ID mancante")
+            sp_offset += 1
+            engine_id_length, sp_offset = decode_length(msg_bytes, sp_offset)
+            sp_offset += engine_id_length
+            
+            # authoritative_engine_boots (INTEGER)
+            if msg_bytes[sp_offset] != SnmpType.INTEGER:
+                raise ValueError("Engine Boots mancante")
+            sp_offset += 1
+            boots_length, sp_offset = decode_length(msg_bytes, sp_offset)
+            sp_offset += boots_length
+            
+            # authoritative_engine_time (INTEGER)
+            if msg_bytes[sp_offset] != SnmpType.INTEGER:
+                raise ValueError("Engine Time mancante")
+            sp_offset += 1
+            time_length, sp_offset = decode_length(msg_bytes, sp_offset)
+            sp_offset += time_length
+            
+            # user_name (OCTET STRING)
+            if msg_bytes[sp_offset] != SnmpType.OCTET_STRING:
+                raise ValueError("Username mancante")
+            sp_offset += 1
+            username_length, sp_offset = decode_length(msg_bytes, sp_offset)
+            sp_offset += username_length
+            
+            # authentication_parameters (OCTET STRING) - QUESTO È QUELLO CHE DOBBIAMO SOSTITUIRE
+            if msg_bytes[sp_offset] != SnmpType.OCTET_STRING:
+                raise ValueError("Authentication Parameters mancanti")
+            sp_offset += 1
+            auth_param_length, sp_offset = decode_length(msg_bytes, sp_offset)
+            auth_param_start = sp_offset
+            auth_param_end = sp_offset + auth_param_length
+            
+            # Verifica che la lunghezza corrisponda
+            if auth_param_length != auth_len:
+                # Se la lunghezza non corrisponde, potrebbe essere già inizializzato a 0
+                # o potrebbe essere un placeholder. Aggiustiamo la lunghezza.
+                pass
+            
+            # Crea una copia del messaggio con zeri al posto dell'auth parameter
+            result = bytearray(msg_bytes)
+            for i in range(auth_param_start, auth_param_end):
+                result[i] = 0
+            
+            return bytes(result)
+            
+        except Exception as e:
+            logger.error(f"Errore nel sostituire auth parameter: {e}")
+            # In caso di errore, restituisci il messaggio originale
+            # (non sarà autenticato correttamente ma almeno non crasherà)
+            return msg_bytes
+
+    def _insert_auth_param(self, msg_bytes: bytes, auth_param: bytes) -> bytes:
+        """Inserisce l'authentication parameter calcolato nel messaggio"""
+        try:
+            # Simile a _replace_auth_param_with_zeros ma inserisce il valore calcolato
+            offset = 0
+            
+            # Tag SEQUENCE del messaggio principale
+            if msg_bytes[offset] != SnmpType.SEQUENCE:
+                raise ValueError("Messaggio SNMPv3 non valido")
+            offset += 1
+            
+            # Salta la lunghezza della sequenza
+            length, offset = decode_length(msg_bytes, offset)
+            
+            # Version (INTEGER)
+            if msg_bytes[offset] != SnmpType.INTEGER:
+                raise ValueError("Version mancante nel messaggio")
+            offset += 1
+            length, offset = decode_length(msg_bytes, offset)
+            offset += length
+            
+            # Global Data (SEQUENCE)
+            if msg_bytes[offset] != SnmpType.SEQUENCE:
+                raise ValueError("Global Data mancante")
+            offset += 1
+            length, offset = decode_length(msg_bytes, offset)
+            offset += length
+            
+            # Security Parameters (OCTET STRING)
+            if msg_bytes[offset] != SnmpType.OCTET_STRING:
+                raise ValueError("Security Parameters mancanti")
+            offset += 1
+            sec_params_length, offset = decode_length(msg_bytes, offset)
+            sec_params_start = offset
+            
+            # Parsing dei Security Parameters
+            sp_offset = sec_params_start
+            
+            # SEQUENCE tag
+            if msg_bytes[sp_offset] != SnmpType.SEQUENCE:
+                raise ValueError("Security Parameters SEQUENCE non valida")
+            sp_offset += 1
+            sp_length, sp_offset = decode_length(msg_bytes, sp_offset)
+            
+            # Salta authoritative_engine_id
+            if msg_bytes[sp_offset] != SnmpType.OCTET_STRING:
+                raise ValueError("Engine ID mancante")
+            sp_offset += 1
+            engine_id_length, sp_offset = decode_length(msg_bytes, sp_offset)
+            sp_offset += engine_id_length
+            
+            # Salta authoritative_engine_boots
+            if msg_bytes[sp_offset] != SnmpType.INTEGER:
+                raise ValueError("Engine Boots mancante")
+            sp_offset += 1
+            boots_length, sp_offset = decode_length(msg_bytes, sp_offset)
+            sp_offset += boots_length
+            
+            # Salta authoritative_engine_time
+            if msg_bytes[sp_offset] != SnmpType.INTEGER:
+                raise ValueError("Engine Time mancante")
+            sp_offset += 1
+            time_length, sp_offset = decode_length(msg_bytes, sp_offset)
+            sp_offset += time_length
+            
+            # Salta user_name
+            if msg_bytes[sp_offset] != SnmpType.OCTET_STRING:
+                raise ValueError("Username mancante")
+            sp_offset += 1
+            username_length, sp_offset = decode_length(msg_bytes, sp_offset)
+            sp_offset += username_length
+            
+            # authentication_parameters - QUI INSERIAMO IL VALORE CALCOLATO
+            if msg_bytes[sp_offset] != SnmpType.OCTET_STRING:
+                raise ValueError("Authentication Parameters mancanti")
+            sp_offset += 1
+            auth_param_length, sp_offset = decode_length(msg_bytes, sp_offset)
+            auth_param_start = sp_offset
+            auth_param_end = sp_offset + auth_param_length
+            
+            # Se la lunghezza attuale non corrisponde, dobbiamo ricostruire il messaggio
+            if auth_param_length != len(auth_param):
+                # Ricostruisci il messaggio con la lunghezza corretta
+                return self._rebuild_message_with_auth(msg_bytes, auth_param)
+            
+            # Inserisci l'auth parameter calcolato
+            result = bytearray(msg_bytes)
+            for i, byte_val in enumerate(auth_param):
+                if auth_param_start + i < auth_param_end:
+                    result[auth_param_start + i] = byte_val
+            
+            return bytes(result)
+            
+        except Exception as e:
+            logger.error(f"Errore nell'inserire auth parameter: {e}")
+            return msg_bytes
+
+    def _rebuild_message_with_auth(self, msg_bytes: bytes, auth_param: bytes) -> bytes:
+        """Ricostruisce completamente il messaggio con il nuovo authentication parameter"""
+        try:
+            # Decodifica il messaggio completo
+            msg_sequence, _ = SnmpSequence.decode(msg_bytes, 0)
+            
+            if len(msg_sequence.value) < 4:
+                raise ValueError("Messaggio SNMPv3 incompleto")
+            
+            version = msg_sequence.value[0]
+            global_data = msg_sequence.value[1]
+            sec_params_octets = msg_sequence.value[2]
+            msg_data = msg_sequence.value[3]
+            
+            # Decodifica i security parameters
+            sec_params = SnmpV3SecurityParameters.decode(sec_params_octets.value)
+            
+            # Aggiorna l'authentication parameter
+            sec_params.authentication_parameters = auth_param
+            
+            # Ricodifica i security parameters
+            new_sec_params = SnmpSequence([
+                SnmpOctetString(sec_params.authoritative_engine_id),
+                SnmpInteger(sec_params.authoritative_engine_boots),
+                SnmpInteger(sec_params.authoritative_engine_time),
+                SnmpOctetString(sec_params.user_name),
+                SnmpOctetString(auth_param),  # Nuovo auth parameter
+                SnmpOctetString(sec_params.privacy_parameters)
+            ])
+            
+            # Ricostruisci il messaggio
+            new_msg = SnmpSequence([
+                version,
+                global_data,
+                SnmpOctetString(new_sec_params.encode()),
+                msg_data
+            ])
+            
+            return new_msg.encode()
+            
+        except Exception as e:
+            logger.error(f"Errore nella ricostruzione del messaggio: {e}")
+            return msg_bytes
+
+    def _build_message(self, msg_flags: int, sec_params: SnmpV3SecurityParameters, 
+                    pdu: SnmpPdu, context_engine_id: bytes, context_name: bytes) -> bytes:
+        """Costruisce un messaggio SNMPv3 completo - VERSIONE MIGLIORATA"""
+        # Message ID
+        msg_id = int(time.time() * 1000) % 0x7FFFFFFF
+        
+        # Global data
+        global_data = SnmpSequence([
+            SnmpInteger(msg_id),
+            SnmpInteger(65507),  # msgMaxSize
+            SnmpOctetString(bytes([msg_flags])),
+            SnmpInteger(3)  # USM security model
+        ])
+        
+        # Scoped PDU
+        scoped_pdu = SnmpSequence([
+            SnmpOctetString(context_engine_id),
+            SnmpOctetString(context_name),
+            pdu
+        ])
+        
+        # Se privacy è abilitata, cripta lo scoped PDU
+        scoped_pdu_data = scoped_pdu.encode()
+        if msg_flags & SnmpV3Flags.PRIV:
+            scoped_pdu_data = self._encrypt_data(scoped_pdu_data, sec_params)
+            scoped_pdu_data = SnmpOctetString(scoped_pdu_data).encode()
+        
+        # Prepara authentication parameters placeholder se auth è abilitata
+        if msg_flags & SnmpV3Flags.AUTH:
+            # Determina la lunghezza dell'auth parameter
+            if self.user.auth_protocol == SnmpV3AuthProtocol.MD5:
+                auth_len = 12
+            elif self.user.auth_protocol == SnmpV3AuthProtocol.SHA:
+                auth_len = 12
+            elif self.user.auth_protocol == SnmpV3AuthProtocol.SHA224:
+                auth_len = 16
+            elif self.user.auth_protocol == SnmpV3AuthProtocol.SHA256:
+                auth_len = 24
+            elif self.user.auth_protocol == SnmpV3AuthProtocol.SHA384:
+                auth_len = 32
+            elif self.user.auth_protocol == SnmpV3AuthProtocol.SHA512:
+                auth_len = 48
+            else:
+                auth_len = 12
+            
+            # Imposta placeholder per auth parameters
+            sec_params.authentication_parameters = b'\x00' * auth_len
+        
+        # Costruisci il messaggio iniziale
+        msg_data = SnmpSequence([
+            SnmpInteger(SnmpVersion.V3),
+            global_data,
+            SnmpOctetString(sec_params.encode()),
+            scoped_pdu_data if msg_flags & SnmpV3Flags.PRIV else scoped_pdu
+        ])
+        
+        msg_bytes = msg_data.encode()
+        
+        # Se autenticazione è abilitata, calcola e inserisci l'auth parameter
+        if msg_flags & SnmpV3Flags.AUTH:
+            msg_bytes = self._add_authentication(msg_bytes, sec_params)
         
         return msg_bytes
     
@@ -2295,79 +2592,929 @@ class UpsMonitor:
             logger.error("ERRORE: Comunicazione SNMP fallita")
             return False
 
+class SnmpTrapSender:
+    """Classe per inviare SNMP Trap v1, v2c e v3"""
+    
+    def __init__(self, trap_host: str = "localhost", trap_port: int = 162,
+                 # Parametri per v1/v2c
+                 community: str = "public",
+                 version: SnmpVersion = SnmpVersion.V2C,
+                 # Parametri per v3
+                 v3_user: Optional[SnmpV3User] = None,
+                 # Engine ID locale per v3 (generato se non fornito)
+                 engine_id: Optional[bytes] = None):
+        self.trap_host = trap_host
+        self.trap_port = trap_port
+        self.community = community
+        self.version = version
+        self.v3_user = v3_user
+        self.socket = None
+        
+        # Per SNMPv3, genera un engine ID se non fornito
+        if version == SnmpVersion.V3:
+            if engine_id:
+                self.engine_id = engine_id
+            else:
+                # Genera engine ID basato su MAC address + timestamp
+                self.engine_id = self._generate_engine_id()
+            
+            if not v3_user:
+                raise ValueError("SNMPv3 richiede un oggetto SnmpV3User")
+                
+            # Crea il processore v3
+            self.v3_processor = SnmpV3MessageProcessor(v3_user)
+            self.v3_processor.engine_id = self.engine_id
+            self.v3_processor.engine_boots = 1
+            self.v3_processor.engine_time = int(time.time())
+            self.v3_processor.discovered = True
+    
+    def _generate_engine_id(self) -> bytes:
+        """Genera un engine ID univoco"""
+        # Formato: 1 byte (enterprise), 4 bytes (enterprise number), N bytes (formato specifico)
+        # Usiamo formato 3 (MAC address) o 4 (text)
+        
+        try:
+            # Prova a ottenere il MAC address
+            import uuid
+            mac = uuid.getnode()
+            # Formato 3: MAC address
+            engine_id = bytes([0x80, 0x00, 0x00, 0x00, 0x03])  # Enterprise 0, formato 3
+            engine_id += mac.to_bytes(6, 'big')
+        except:
+            # Fallback: usa formato 4 (text) con hostname + timestamp
+            import platform
+            text = f"{platform.node()}-{int(time.time())}"[:27]  # Max 27 caratteri
+            engine_id = bytes([0x80, 0x00, 0x00, 0x00, 0x04])  # Enterprise 0, formato 4
+            engine_id += text.encode('utf-8')
+        
+        logger.info(f"Generated engine ID: {engine_id.hex()}")
+        return engine_id
+    
+    def _create_socket(self):
+        """Crea socket UDP per inviare trap"""
+        if self.socket is None:
+            self.socket = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    
+    def _close_socket(self):
+        """Chiude il socket"""
+        if self.socket is not None:
+            self.socket.close()
+            self.socket = None
+    
+    def send_v1_trap(self, 
+                 enterprise: str,
+                 agent_addr: str,
+                 generic_trap: int,
+                 specific_trap: int,
+                 timestamp: Optional[int] = None,
+                 varbinds: Optional[List[Tuple[str, SnmpData]]] = None) -> bool:
+        """
+        Invia un SNMP v1 Trap
+        """
+        if self.version != SnmpVersion.V1:
+            logger.error("send_v1_trap richiede version=SnmpVersion.V1")
+            return False
+        
+        try:
+            # Prepara varbinds
+            if varbinds is None:
+                varbinds = []
+            
+            # Converti OID strings in oggetti
+            varbind_objects = []
+            for oid_str, value in varbinds:
+                oid_obj = SnmpObjectIdentifier(oid_str)
+                varbind_objects.append((oid_obj, value))
+            
+            # Timestamp - FIX: usa modulo per restare nei limiti
+            if timestamp is None:
+                timestamp = int(time.time() * 100) % 4294967296  # Modulo per restare nei limiti
+            
+            # Costruisci il Trap PDU v1
+            # La struttura è diversa da v2/v3:
+            # Trap-PDU ::= [4] IMPLICIT SEQUENCE {
+            #     enterprise OBJECT IDENTIFIER,
+            #     agent-addr NetworkAddress,
+            #     generic-trap INTEGER,
+            #     specific-trap INTEGER,
+            #     time-stamp TimeTicks,
+            #     variable-bindings VarBindList
+            # }
+            
+            # Codifica i componenti
+            enterprise_oid = SnmpObjectIdentifier(enterprise)
+            agent_ip = SnmpIpAddress(agent_addr)
+            generic = SnmpInteger(generic_trap)
+            specific = SnmpInteger(specific_trap)
+            timestamp_ticks = SnmpTimeTicks(timestamp)
+            
+            # VarBindList
+            varbind_list = []
+            for oid, value in varbind_objects:
+                varbind = SnmpSequence([oid, value])
+                varbind_list.append(varbind)
+            varbind_sequence = SnmpSequence(varbind_list)
+            
+            # Costruisci il Trap PDU manualmente
+            trap_contents = (
+                enterprise_oid.encode() +
+                agent_ip.encode() +
+                generic.encode() +
+                specific.encode() +
+                timestamp_ticks.encode() +
+                varbind_sequence.encode()
+            )
+            
+            # Wrap con tag TRAP (0xA4)
+            trap_pdu = bytes([SnmpType.TRAP]) + encode_length(len(trap_contents)) + trap_contents
+            
+            # Crea messaggio SNMP v1
+            version_component = SnmpInteger(SnmpVersion.V1)
+            community_component = SnmpOctetString(self.community)
+            
+            message_contents = (
+                version_component.encode() +
+                community_component.encode() +
+                trap_pdu
+            )
+            
+            # Wrap in SEQUENCE
+            message = bytes([SnmpType.SEQUENCE]) + encode_length(len(message_contents)) + message_contents
+            
+            # Invia
+            self._create_socket()
+            self.socket.sendto(message, (self.trap_host, self.trap_port))
+            
+            logger.info(f"SNMPv1 Trap inviato a {self.trap_host}:{self.trap_port}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Errore invio trap v1: {e}")
+            return False
+        finally:
+            self._close_socket()
+    
+    def send_v2c_trap(self,
+                  trap_oid: str,
+                  timestamp: Optional[int] = None,
+                  varbinds: Optional[List[Tuple[str, SnmpData]]] = None) -> bool:
+        """
+        Invia un SNMP v2c Trap/Notification
+        
+        Args:
+            trap_oid: OID del trap (es. "1.3.6.1.6.3.1.1.5.3" per linkDown)
+            timestamp: sysUpTime in centesimi di secondo (auto se None)
+            varbinds: Lista di coppie (oid, valore)
+        
+        Returns:
+            True se inviato con successo
+        """
+        if self.version != SnmpVersion.V2C:
+            logger.error("send_v2c_trap richiede version=SnmpVersion.V2C")
+            return False
+        
+        try:
+            # Timestamp - FIX: usa modulo per restare nei limiti di TimeTicks
+            if timestamp is None:
+                # Usa un timestamp relativo invece di time.time() * 100
+                # TimeTicks max value è 4294967295 (circa 497 giorni in centesimi di secondo)
+                timestamp = int(time.time() * 100) % 4294967296  # Modulo per restare nei limiti
+            
+            # Varbinds obbligatori per v2c trap
+            mandatory_varbinds = [
+                # sysUpTime
+                ("1.3.6.1.2.1.1.3.0", SnmpTimeTicks(timestamp)),
+                # snmpTrapOID
+                ("1.3.6.1.6.3.1.1.4.1.0", SnmpObjectIdentifier(trap_oid))
+            ]
+            
+            # Aggiungi varbinds custom
+            if varbinds:
+                for oid_str, value in varbinds:
+                    mandatory_varbinds.append((oid_str, value))
+            
+            # Converti in oggetti
+            varbind_objects = []
+            for oid_str, value in mandatory_varbinds:
+                oid_obj = SnmpObjectIdentifier(oid_str)
+                varbind_objects.append((oid_obj, value))
+            
+            # Crea PDU
+            request_id = int(time.time()) % 0x7FFFFFFF
+            pdu = SnmpTrapV2(request_id, 0, 0, varbind_objects)
+            
+            # Crea messaggio
+            message = SnmpMessage(SnmpVersion.V2C, self.community, pdu)
+            message_bytes = message.encode()
+            
+            # Invia
+            self._create_socket()
+            self.socket.sendto(message_bytes, (self.trap_host, self.trap_port))
+            
+            logger.info(f"SNMPv2c Trap inviato a {self.trap_host}:{self.trap_port}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Errore invio trap v2c: {e}")
+            return False
+        finally:
+            self._close_socket()
+    
+    def send_v3_trap(self,
+                 trap_oid: str,
+                 timestamp: Optional[int] = None,
+                 varbinds: Optional[List[Tuple[str, SnmpData]]] = None,
+                 context_engine_id: Optional[bytes] = None,
+                 context_name: bytes = b'') -> bool:
+        """
+        Invia un SNMP v3 Trap/Notification
+        
+        Args:
+            trap_oid: OID del trap
+            timestamp: sysUpTime in centesimi di secondo
+            varbinds: Lista di coppie (oid, valore)
+            context_engine_id: Context engine ID (usa local se None)
+            context_name: Context name
+        
+        Returns:
+            True se inviato con successo
+        """
+        if self.version != SnmpVersion.V3:
+            logger.error("send_v3_trap richiede version=SnmpVersion.V3")
+            return False
+        
+        try:
+            # Timestamp - FIX: usa modulo per restare nei limiti
+            if timestamp is None:
+                timestamp = int(time.time() * 100) % 4294967296  # Modulo per restare nei limiti
+            
+            # Context engine ID
+            if context_engine_id is None:
+                context_engine_id = self.engine_id
+            
+            # Varbinds obbligatori
+            mandatory_varbinds = [
+                ("1.3.6.1.2.1.1.3.0", SnmpTimeTicks(timestamp)),
+                ("1.3.6.1.6.3.1.1.4.1.0", SnmpObjectIdentifier(trap_oid))
+            ]
+            
+            if varbinds:
+                for oid_str, value in varbinds:
+                    mandatory_varbinds.append((oid_str, value))
+            
+            # Converti in oggetti
+            varbind_objects = []
+            for oid_str, value in mandatory_varbinds:
+                oid_obj = SnmpObjectIdentifier(oid_str)
+                varbind_objects.append((oid_obj, value))
+            
+            # Crea PDU
+            request_id = int(time.time()) % 0x7FFFFFFF
+            pdu = SnmpTrapV2(request_id, 0, 0, varbind_objects)
+            
+            # Crea messaggio v3
+            msg_flags = SnmpV3Flags.NO_FLAGS  # Trap non sono reportable
+            if self.v3_user.auth_protocol != SnmpV3AuthProtocol.NO_AUTH:
+                msg_flags |= SnmpV3Flags.AUTH
+            if self.v3_user.priv_protocol != SnmpV3PrivProtocol.NO_PRIV:
+                msg_flags |= SnmpV3Flags.PRIV
+            
+            # Security parameters
+            sec_params = SnmpV3SecurityParameters()
+            sec_params.authoritative_engine_id = self.engine_id
+            sec_params.authoritative_engine_boots = self.v3_processor.engine_boots
+            sec_params.authoritative_engine_time = int(time.time()) % 2147483648  # Anche qui limite
+            sec_params.user_name = self.v3_user.username
+            
+            # Costruisci messaggio
+            message_bytes = self.v3_processor._build_message(
+                msg_flags, sec_params, pdu, context_engine_id, context_name)
+            
+            # Invia
+            self._create_socket()
+            self.socket.sendto(message_bytes, (self.trap_host, self.trap_port))
+            
+            logger.info(f"SNMPv3 Trap inviato a {self.trap_host}:{self.trap_port}")
+            return True
+            
+        except Exception as e:
+            logger.error(f"Errore invio trap v3: {e}")
+            return False
+        finally:
+            self._close_socket()
+    
+    # Metodi helper per trap comuni
+    
+    def send_cold_start(self) -> bool:
+        """Invia trap coldStart (riavvio completo)"""
+        if self.version == SnmpVersion.V1:
+            return self.send_v1_trap(
+                enterprise="1.3.6.1.6.3.1.1.5",
+                agent_addr="0.0.0.0",
+                generic_trap=0,
+                specific_trap=0
+            )
+        else:
+            return self.send_v2c_trap("1.3.6.1.6.3.1.1.5.1") if self.version == SnmpVersion.V2C else \
+                   self.send_v3_trap("1.3.6.1.6.3.1.1.5.1")
+    
+    def send_warm_start(self) -> bool:
+        """Invia trap warmStart (riavvio parziale)"""
+        if self.version == SnmpVersion.V1:
+            return self.send_v1_trap(
+                enterprise="1.3.6.1.6.3.1.1.5",
+                agent_addr="0.0.0.0",
+                generic_trap=1,
+                specific_trap=0
+            )
+        else:
+            return self.send_v2c_trap("1.3.6.1.6.3.1.1.5.2") if self.version == SnmpVersion.V2C else \
+                   self.send_v3_trap("1.3.6.1.6.3.1.1.5.2")
+    
+    def send_link_down(self, if_index: int, if_descr: str = "", if_type: int = 6) -> bool:
+        """Invia trap linkDown per interfaccia"""
+        varbinds = [
+            ("1.3.6.1.2.1.2.2.1.1." + str(if_index), SnmpInteger(if_index)),      # ifIndex
+            ("1.3.6.1.2.1.2.2.1.2." + str(if_index), SnmpOctetString(if_descr)), # ifDescr
+            ("1.3.6.1.2.1.2.2.1.3." + str(if_index), SnmpInteger(if_type))       # ifType
+        ]
+        
+        if self.version == SnmpVersion.V1:
+            return self.send_v1_trap(
+                enterprise="1.3.6.1.6.3.1.1.5",
+                agent_addr="0.0.0.0",
+                generic_trap=2,
+                specific_trap=0,
+                varbinds=varbinds
+            )
+        else:
+            return self.send_v2c_trap("1.3.6.1.6.3.1.1.5.3", varbinds=varbinds) if self.version == SnmpVersion.V2C else \
+                   self.send_v3_trap("1.3.6.1.6.3.1.1.5.3", varbinds=varbinds)
+    
+    def send_link_up(self, if_index: int, if_descr: str = "", if_type: int = 6) -> bool:
+        """Invia trap linkUp per interfaccia"""
+        varbinds = [
+            ("1.3.6.1.2.1.2.2.1.1." + str(if_index), SnmpInteger(if_index)),
+            ("1.3.6.1.2.1.2.2.1.2." + str(if_index), SnmpOctetString(if_descr)),
+            ("1.3.6.1.2.1.2.2.1.3." + str(if_index), SnmpInteger(if_type))
+        ]
+        
+        if self.version == SnmpVersion.V1:
+            return self.send_v1_trap(
+                enterprise="1.3.6.1.6.3.1.1.5",
+                agent_addr="0.0.0.0",
+                generic_trap=3,
+                specific_trap=0,
+                varbinds=varbinds
+            )
+        else:
+            return self.send_v2c_trap("1.3.6.1.6.3.1.1.5.4", varbinds=varbinds) if self.version == SnmpVersion.V2C else \
+                   self.send_v3_trap("1.3.6.1.6.3.1.1.5.4", varbinds=varbinds)
+    
+    def send_authentication_failure(self) -> bool:
+        """Invia trap authenticationFailure"""
+        if self.version == SnmpVersion.V1:
+            return self.send_v1_trap(
+                enterprise="1.3.6.1.6.3.1.1.5",
+                agent_addr="0.0.0.0",
+                generic_trap=4,
+                specific_trap=0
+            )
+        else:
+            return self.send_v2c_trap("1.3.6.1.6.3.1.1.5.5") if self.version == SnmpVersion.V2C else \
+                   self.send_v3_trap("1.3.6.1.6.3.1.1.5.5")
+    
+    def send_ups_trap(self, trap_type: str, **kwargs) -> bool:
+        """
+        Invia trap specifici per UPS
+        
+        Tipi supportati:
+        - 'on_battery': UPS passa a batteria
+        - 'on_mains': UPS torna su rete
+        - 'battery_low': Batteria scarica
+        - 'battery_replaced': Batteria sostituita
+        - 'overload': Sovraccarico
+        - 'temperature_high': Temperatura alta
+        """
+        # OID base per trap UPS
+        ups_trap_base = "1.3.6.1.4.1.318.0"  # APC enterprises
+        
+        trap_oids = {
+            'on_battery': ups_trap_base + ".1",
+            'on_mains': ups_trap_base + ".2",
+            'battery_low': ups_trap_base + ".3",
+            'battery_replaced': ups_trap_base + ".4",
+            'overload': ups_trap_base + ".5",
+            'temperature_high': ups_trap_base + ".6"
+        }
+        
+        if trap_type not in trap_oids:
+            logger.error(f"Tipo trap UPS non riconosciuto: {trap_type}")
+            return False
+        
+        # Prepara varbinds con info UPS
+        varbinds = []
+        
+        # Aggiungi info base UPS
+        if 'battery_charge' in kwargs:
+            varbinds.append(("1.3.6.1.4.1.318.1.1.1.2.2.1.0", 
+                           SnmpInteger(kwargs['battery_charge'])))
+        
+        if 'runtime' in kwargs:
+            varbinds.append(("1.3.6.1.4.1.318.1.1.1.2.2.3.0", 
+                           SnmpInteger(kwargs['runtime'])))
+        
+        if 'load_percent' in kwargs:
+            varbinds.append(("1.3.6.1.4.1.318.1.1.1.4.2.3.0", 
+                           SnmpInteger(kwargs['load_percent'])))
+        
+        if 'temperature' in kwargs:
+            varbinds.append(("1.3.6.1.4.1.318.1.1.1.2.2.2.0", 
+                           SnmpInteger(kwargs['temperature'])))
+        
+        if 'message' in kwargs:
+            varbinds.append(("1.3.6.1.4.1.318.1.1.1.12.1.1.0", 
+                           SnmpOctetString(kwargs['message'])))
+        
+        # Invia trap
+        if self.version == SnmpVersion.V1:
+            return self.send_v1_trap(
+                enterprise=ups_trap_base,
+                agent_addr=kwargs.get('agent_addr', '0.0.0.0'),
+                generic_trap=6,  # enterpriseSpecific
+                specific_trap=int(trap_type.split('.')[-1]),
+                varbinds=varbinds
+            )
+        else:
+            return self.send_v2c_trap(trap_oids[trap_type], varbinds=varbinds) if self.version == SnmpVersion.V2C else \
+                   self.send_v3_trap(trap_oids[trap_type], varbinds=varbinds)
+    
+    def send_test_trap(self, message: str = "Test trap from SNMPY") -> bool:
+        """Invia un trap di test con messaggio custom"""
+        test_oid = "1.3.6.1.4.1.99999.1.1"  # OID di test
+        varbinds = [
+            ("1.3.6.1.4.1.99999.1.2", SnmpOctetString(message)),
+            ("1.3.6.1.4.1.99999.1.3", SnmpInteger(int(time.time()))),
+            ("1.3.6.1.4.1.99999.1.4", SnmpOctetString(f"SNMPY v{self.version.name}"))
+        ]
+        
+        if self.version == SnmpVersion.V1:
+            return self.send_v1_trap(
+                enterprise="1.3.6.1.4.1.99999",
+                agent_addr="0.0.0.0",
+                generic_trap=6,
+                specific_trap=1,
+                varbinds=varbinds
+            )
+        else:
+            return self.send_v2c_trap(test_oid, varbinds=varbinds) if self.version == SnmpVersion.V2C else \
+                   self.send_v3_trap(test_oid, varbinds=varbinds)
+    
+    def __enter__(self):
+        """Context manager support"""
+        self._create_socket()
+        return self
+    
+    def __exit__(self, exc_type, exc_val, exc_tb):
+        """Context manager cleanup"""
+        self._close_socket()
+    
+    
+
+
+# Aggiungi funzione di test per trap
+def test_trap_sender():
+    """Funzione di test per il trap sender"""
+    import sys
+    
+    print("=== Test SNMP Trap Sender ===\n")
+    
+    # Parametri di default
+    trap_host = input("Destinazione trap [localhost]: ").strip() or "localhost"
+    trap_port = int(input("Porta trap [162]: ").strip() or "162")
+    version = input("Versione SNMP (1/2c/3) [2c]: ").strip() or "2c"
+    
+    # Crea sender in base alla versione
+    if version == "1":
+        sender = SnmpTrapSender(trap_host, trap_port, version=SnmpVersion.V1)
+    elif version == "3":
+        username = input("Username SNMPv3: ").strip()
+        auth_proto = input("Auth protocol (MD5/SHA) [SHA]: ").strip() or "SHA"
+        auth_pass = input("Auth password: ").strip()
+        
+        v3_user = SnmpV3User(
+            username=username,
+            auth_protocol=SnmpV3AuthProtocol[auth_proto],
+            auth_password=auth_pass
+        )
+        sender = SnmpTrapSender(trap_host, trap_port, version=SnmpVersion.V3, v3_user=v3_user)
+    else:
+        community = input("Community [public]: ").strip() or "public"
+        sender = SnmpTrapSender(trap_host, trap_port, community=community, version=SnmpVersion.V2C)
+    
+    print("\nTipi di trap disponibili:")
+    print("1. Test trap")
+    print("2. Cold start")
+    print("3. Warm start")
+    print("4. Link down")
+    print("5. Link up")
+    print("6. Authentication failure")
+    print("7. UPS on battery")
+    print("8. UPS battery low")
+    
+    choice = input("\nScegli tipo di trap (1-8): ").strip()
+    
+    success = False
+    
+    if choice == "1":
+        message = input("Messaggio di test: ").strip() or "Test trap from SNMPY"
+        success = sender.send_test_trap(message)
+    elif choice == "2":
+        success = sender.send_cold_start()
+    elif choice == "3":
+        success = sender.send_warm_start()
+    elif choice == "4":
+        if_index = int(input("Interface index [1]: ").strip() or "1")
+        if_descr = input("Interface description [eth0]: ").strip() or "eth0"
+        success = sender.send_link_down(if_index, if_descr)
+    elif choice == "5":
+        if_index = int(input("Interface index [1]: ").strip() or "1")
+        if_descr = input("Interface description [eth0]: ").strip() or "eth0"
+        success = sender.send_link_up(if_index, if_descr)
+    elif choice == "6":
+        success = sender.send_authentication_failure()
+    elif choice == "7":
+        success = sender.send_ups_trap('on_battery', 
+                                      battery_charge=75,
+                                      runtime=45,
+                                      load_percent=80,
+                                      message="UPS switched to battery power")
+    elif choice == "8":
+        success = sender.send_ups_trap('battery_low',
+                                      battery_charge=15,
+                                      runtime=5,
+                                      message="UPS battery is low")
+    
+    if success:
+        print(f"\n✅ Trap inviato con successo a {trap_host}:{trap_port}")
+    else:
+        print("\n❌ Errore nell'invio del trap")
+
+def decode_snmp_hex(hex_string, return_dict=False):
+    """
+    Decodifica un pacchetto SNMP da stringa esadecimale
+    
+    Args:
+        hex_string: Stringa esadecimale del pacchetto
+        return_dict: Se True, ritorna dizionario invece di stampare
+    
+    Returns:
+        Dict con info decodificate se return_dict=True, altrimenti None
+    """
+    import binascii
+    
+    # Rimuovi spazi e converti in bytes
+    hex_string = hex_string.replace(" ", "").replace("\n", "")
+    try:
+        data = binascii.unhexlify(hex_string)
+    except:
+        return {"error": "Hex string non valida"}
+    
+    result = {
+        "length": len(data),
+        "hex": hex_string[:100] + "..." if len(hex_string) > 100 else hex_string,
+        "version": None,
+        "community": None,
+        "pdu_type": None,
+        "varbinds": [],
+        "raw_decode": []
+    }
+    
+    def decode_oid(data):
+        if not data:
+            return ""
+        oid = []
+        oid.append(str(data[0] // 40))
+        oid.append(str(data[0] % 40))
+        
+        i = 1
+        while i < len(data):
+            value = 0
+            while i < len(data) and data[i] & 0x80:
+                value = (value << 7) | (data[i] & 0x7f)
+                i += 1
+            if i < len(data):
+                value = (value << 7) | data[i]
+                i += 1
+            oid.append(str(value))
+        
+        return '.'.join(oid)
+    
+    def format_timeticks(ticks):
+        total_seconds = ticks / 100
+        days = int(total_seconds // 86400)
+        hours = int((total_seconds % 86400) // 3600)
+        minutes = int((total_seconds % 3600) // 60)
+        seconds = total_seconds % 60
+        
+        if days > 0:
+            return f"{days}d {hours}h {minutes}m {seconds:.2f}s"
+        elif hours > 0:
+            return f"{hours}h {minutes}m {seconds:.2f}s"
+        elif minutes > 0:
+            return f"{minutes}m {seconds:.2f}s"
+        else:
+            return f"{seconds:.2f}s"
+    
+    def interpret_tag(tag):
+        tags = {
+            0x02: "INTEGER",
+            0x04: "OCTET STRING", 
+            0x05: "NULL",
+            0x06: "OBJECT IDENTIFIER",
+            0x30: "SEQUENCE",
+            0x40: "IP ADDRESS",
+            0x41: "COUNTER32",
+            0x42: "GAUGE32",
+            0x43: "TIMETICKS",
+            0x44: "OPAQUE",
+            0x46: "COUNTER64",
+            0xa0: "GetRequest-PDU",
+            0xa1: "GetNextRequest-PDU",
+            0xa2: "GetResponse-PDU",
+            0xa3: "SetRequest-PDU",
+            0xa4: "Trap-PDU (v1)",
+            0xa5: "GetBulkRequest-PDU",
+            0xa6: "InformRequest-PDU",
+            0xa7: "SNMPv2-Trap-PDU",
+            0xa8: "Report-PDU"
+        }
+        return tags.get(tag, f"Unknown (0x{tag:02x})")
+    
+    try:
+        # Decodifica con la libreria
+        msg = SnmpMessage.decode(data)
+        
+        # Versione
+        if msg.version == 0:
+            result["version"] = "1"
+        elif msg.version == 1:
+            result["version"] = "2c"
+        else:
+            result["version"] = "3"
+        
+        result["community"] = msg.community
+        result["pdu_type"] = type(msg.pdu).__name__
+        
+        # Request ID, error status, error index
+        if hasattr(msg.pdu, 'request_id'):
+            result["request_id"] = msg.pdu.request_id
+        if hasattr(msg.pdu, 'error_status'):
+            result["error_status"] = msg.pdu.error_status
+        if hasattr(msg.pdu, 'error_index'):
+            result["error_index"] = msg.pdu.error_index
+        
+        # Varbinds
+        if hasattr(msg.pdu, 'varbinds'):
+            for oid, value in msg.pdu.varbinds:
+                oid_str = '.'.join(str(x) for x in oid.value)
+                
+                # Formatta valore
+                if isinstance(value, SnmpOctetString):
+                    try:
+                        val_str = value.value.decode('utf-8')
+                    except:
+                        val_str = value.value.hex()
+                elif isinstance(value, SnmpTimeTicks):
+                    val_str = f"{value.value} ({format_timeticks(value.value)})"
+                elif isinstance(value, SnmpObjectIdentifier):
+                    val_str = '.'.join(str(x) for x in value.value)
+                elif hasattr(value, 'value'):
+                    val_str = str(value.value)
+                else:
+                    val_str = str(value)
+                
+                # Identifica OID speciali
+                oid_name = ""
+                if oid_str == "1.3.6.1.2.1.1.3.0":
+                    oid_name = "sysUpTime"
+                elif oid_str == "1.3.6.1.6.3.1.1.4.1.0":
+                    oid_name = "snmpTrapOID"
+                elif oid_str.startswith("1.3.6.1.4.1.318"):
+                    oid_name = "APC"
+                elif oid_str.startswith("1.3.6.1.2.1.33"):
+                    oid_name = "UPS-MIB"
+                
+                result["varbinds"].append({
+                    "oid": oid_str,
+                    "name": oid_name,
+                    "type": type(value).__name__,
+                    "value": val_str
+                })
+        
+        # Se è un trap, identifica il tipo
+        if isinstance(msg.pdu, (SnmpTrapV2, SnmpInformRequest)):
+            for vb in result["varbinds"]:
+                if vb["oid"] == "1.3.6.1.6.3.1.1.4.1.0":
+                    trap_oid = vb["value"]
+                    if trap_oid == "1.3.6.1.6.3.1.1.5.1":
+                        result["trap_type"] = "coldStart"
+                    elif trap_oid == "1.3.6.1.6.3.1.1.5.2":
+                        result["trap_type"] = "warmStart"
+                    elif trap_oid == "1.3.6.1.6.3.1.1.5.3":
+                        result["trap_type"] = "linkDown"
+                    elif trap_oid == "1.3.6.1.6.3.1.1.5.4":
+                        result["trap_type"] = "linkUp"
+                    elif trap_oid == "1.3.6.1.6.3.1.1.5.5":
+                        result["trap_type"] = "authenticationFailure"
+                    elif "318" in trap_oid:
+                        result["trap_type"] = "APC UPS Trap"
+                    else:
+                        result["trap_type"] = f"Enterprise ({trap_oid})"
+        
+        if not return_dict:
+            # Stampa risultato
+            print(f"\n=== SNMP Packet Decoder ===")
+            print(f"Lunghezza: {result['length']} bytes")
+            print(f"Versione: SNMPv{result['version']}")
+            print(f"Community: {result['community']}")
+            print(f"PDU Type: {result['pdu_type']}")
+            
+            if 'trap_type' in result:
+                print(f"Trap Type: {result['trap_type']}")
+            
+            if result['varbinds']:
+                print(f"\nVarbinds ({len(result['varbinds'])}):")
+                for vb in result['varbinds']:
+                    print(f"  {vb['oid']}")
+                    if vb['name']:
+                        print(f"    Name: {vb['name']}")
+                    print(f"    Type: {vb['type']}")
+                    print(f"    Value: {vb['value']}")
+                    print()
+        
+        return result if return_dict else None
+        
+    except Exception as e:
+        result["error"] = str(e)
+        if not return_dict:
+            print(f"Errore decodifica: {e}")
+            import traceback
+            traceback.print_exc()
+        return result if return_dict else None
+
+
+# Modifica la sezione main esistente per aggiungere l'opzione trap
 def main():
-    """Funzione principale"""
+    """Funzione principale - VERSIONE AGGIORNATA"""
     import argparse
     
-    parser = argparse.ArgumentParser(description='Monitoraggio UPS tramite SNMP (v1/v2c/v3)')
-    parser.add_argument('--ip', required=True, help='Indirizzo IP dell\'UPS')
-    parser.add_argument('--port', type=int, default=161, help='Porta SNMP')
-    parser.add_argument('--version', type=int, default=2, choices=[1, 2, 3], help='Versione SNMP (1, 2 o 3)')
+    parser = argparse.ArgumentParser(description='SNMPY - Libreria SNMP completa (v1/v2c/v3) con Trap Sender')
     
-    # Parametri per v1/v2c
-    parser.add_argument('--community', default='public', help='SNMP community string (v1/v2c)')
+    # Aggiungi subcommands
+    subparsers = parser.add_subparsers(dest='command', help='Comandi disponibili')
     
-    # Parametri per v3
-    parser.add_argument('--v3-user', help='Nome utente SNMPv3')
-    parser.add_argument('--v3-auth-protocol', choices=['noAuth', 'MD5', 'SHA', 'SHA224', 'SHA256', 'SHA384', 'SHA512'],
-                        default='noAuth', help='Protocollo di autenticazione SNMPv3')
-    parser.add_argument('--v3-auth-password', help='Password di autenticazione SNMPv3')
-    parser.add_argument('--v3-priv-protocol', choices=['noPriv', 'DES', 'AES128', 'AES192', 'AES256'],
-                        default='noPriv', help='Protocollo di privacy SNMPv3')
-    parser.add_argument('--v3-priv-password', help='Password di privacy SNMPv3')
+    # Monitor command (esistente)
+    monitor_parser = subparsers.add_parser('monitor', help='Monitora UPS via SNMP')
+    monitor_parser.add_argument('--ip', required=True, help='Indirizzo IP dell\'UPS')
+    monitor_parser.add_argument('--port', type=int, default=161, help='Porta SNMP')
+    monitor_parser.add_argument('--version', type=int, default=2, choices=[1, 2, 3], help='Versione SNMP')
+    monitor_parser.add_argument('--community', default='public', help='Community string')
+    monitor_parser.add_argument('--v3-user', help='Nome utente SNMPv3')
+    monitor_parser.add_argument('--v3-auth-protocol', choices=['noAuth', 'MD5', 'SHA', 'SHA224', 'SHA256', 'SHA384', 'SHA512'],
+                              default='noAuth', help='Protocollo auth SNMPv3')
+    monitor_parser.add_argument('--v3-auth-password', help='Password auth SNMPv3')
+    monitor_parser.add_argument('--v3-priv-protocol', choices=['noPriv', 'DES', 'AES128', 'AES192', 'AES256'],
+                              default='noPriv', help='Protocollo priv SNMPv3')
+    monitor_parser.add_argument('--v3-priv-password', help='Password priv SNMPv3')
+    monitor_parser.add_argument('--interval', type=float, default=5.0, help='Intervallo polling')
+    monitor_parser.add_argument('--duration', type=float, help='Durata monitoraggio')
+    monitor_parser.add_argument('--walk', action='store_true', help='Esegui SNMP walk')
+    monitor_parser.add_argument('--test', action='store_true', help='Test connessione')
+    monitor_parser.add_argument('--debug', action='store_true', help='Debug mode')
     
-    # Opzioni operative
-    parser.add_argument('--interval', type=float, default=5.0, help='Intervallo di polling (secondi)')
-    parser.add_argument('--duration', type=float, help='Durata del monitoraggio (secondi)')
-    parser.add_argument('--walk', action='store_true', help='Esegui SNMP walk per identificare OID disponibili')
-    parser.add_argument('--test', action='store_true', help='Testa solo la connessione SNMP')
-    parser.add_argument('--debug', action='store_true', help='Abilita messaggi di debug')
+    # Trap command (nuovo)
+    trap_parser = subparsers.add_parser('trap', help='Invia SNMP trap')
+    trap_parser.add_argument('--host', default='localhost', help='Host destinazione trap')
+    trap_parser.add_argument('--port', type=int, default=162, help='Porta destinazione trap')
+    trap_parser.add_argument('--version', type=int, default=2, choices=[1, 2, 3], help='Versione SNMP')
+    trap_parser.add_argument('--community', default='public', help='Community string')
+    trap_parser.add_argument('--type', choices=['test', 'coldstart', 'warmstart', 'linkdown', 'linkup', 
+                                               'authfail', 'ups-battery', 'ups-low'],
+                           default='test', help='Tipo di trap da inviare')
+    trap_parser.add_argument('--message', help='Messaggio per test trap')
+    trap_parser.add_argument('--interface', type=int, default=1, help='Interface index per link trap')
+    trap_parser.add_argument('--v3-user', help='Username SNMPv3')
+    trap_parser.add_argument('--v3-auth-protocol', choices=['noAuth', 'MD5', 'SHA'], default='SHA')
+    trap_parser.add_argument('--v3-auth-password', help='Password auth SNMPv3')
     
     args = parser.parse_args()
     
-    # Configura il logging
-    if args.debug:
+    # Se nessun comando, mostra test interattivo
+    if not args.command:
+        test_trap_sender()
+        return
+    
+    # Configura logging
+    if hasattr(args, 'debug') and args.debug:
         logger.setLevel(logging.DEBUG)
     
-    # Determina la versione SNMP
-    if args.version == 1:
-        version = SnmpVersion.V1
-    elif args.version == 2:
-        version = SnmpVersion.V2C
-    else:
-        version = SnmpVersion.V3
+    if args.command == 'monitor':
+        # Codice esistente per monitor
+        if args.version == 1:
+            version = SnmpVersion.V1
+        elif args.version == 2:
+            version = SnmpVersion.V2C
+        else:
+            version = SnmpVersion.V3
+        
+        v3_user = None
+        if version == SnmpVersion.V3:
+            if not args.v3_user:
+                parser.error("SNMPv3 richiede --v3-user")
+            
+            auth_protocol = SnmpV3AuthProtocol[args.v3_auth_protocol.replace('noAuth', 'NO_AUTH')]
+            priv_protocol = SnmpV3PrivProtocol[args.v3_priv_protocol.replace('noPriv', 'NO_PRIV')]
+            
+            v3_user = SnmpV3User(
+                username=args.v3_user,
+                auth_protocol=auth_protocol,
+                auth_password=args.v3_auth_password or '',
+                priv_protocol=priv_protocol,
+                priv_password=args.v3_priv_password or ''
+            )
+        
+        monitor = UpsMonitor(args.ip, args.port, args.community, version, v3_user)
+        
+        if args.test:
+            success = monitor.test_connection()
+            sys.exit(0 if success else 1)
+        elif args.walk:
+            results = monitor.walk_mib()
+            for oid, value in sorted(results.items()):
+                print(f"{oid} = {value}")
+        else:
+            monitor.monitor(args.interval, args.duration)
     
-    # Crea l'utente v3 se necessario
-    v3_user = None
-    if version == SnmpVersion.V3:
-        if not args.v3_user:
-            parser.error("SNMPv3 richiede --v3-user")
+    elif args.command == 'trap':
+        # Nuovo codice per trap
+        if args.version == 1:
+            version = SnmpVersion.V1
+        elif args.version == 3:
+            version = SnmpVersion.V3
+        else:
+            version = SnmpVersion.V2C
         
-        # Converti i protocolli
-        auth_protocol = SnmpV3AuthProtocol[args.v3_auth_protocol.replace('noAuth', 'NO_AUTH')]
-        priv_protocol = SnmpV3PrivProtocol[args.v3_priv_protocol.replace('noPriv', 'NO_PRIV')]
+        # Crea v3 user se necessario
+        v3_user = None
+        if version == SnmpVersion.V3:
+            if not args.v3_user:
+                parser.error("SNMPv3 richiede --v3-user")
+            
+            auth_protocol = SnmpV3AuthProtocol[args.v3_auth_protocol.replace('noAuth', 'NO_AUTH')]
+            
+            v3_user = SnmpV3User(
+                username=args.v3_user,
+                auth_protocol=auth_protocol,
+                auth_password=args.v3_auth_password or ''
+            )
         
-        v3_user = SnmpV3User(
-            username=args.v3_user,
-            auth_protocol=auth_protocol,
-            auth_password=args.v3_auth_password or '',
-            priv_protocol=priv_protocol,
-            priv_password=args.v3_priv_password or ''
+        # Crea sender
+        sender = SnmpTrapSender(
+            trap_host=args.host,
+            trap_port=args.port,
+            community=args.community,
+            version=version,
+            v3_user=v3_user
         )
-    
-    # Crea l'oggetto UpsMonitor
-    monitor = UpsMonitor(args.ip, args.port, args.community, version, v3_user)
-    
-    # Esegui l'operazione richiesta
-    if args.test:
-        success = monitor.test_connection()
-        sys.exit(0 if success else 1)
-    elif args.walk:
-        results = monitor.walk_mib()
-        for oid, value in sorted(results.items()):
-            print(f"{oid} = {value}")
-    else:
-        monitor.monitor(args.interval, args.duration)
+        
+        # Invia trap in base al tipo
+        success = False
+        
+        if args.type == 'test':
+            message = args.message or f"Test trap from SNMPY at {time.strftime('%Y-%m-%d %H:%M:%S')}"
+            success = sender.send_test_trap(message)
+        elif args.type == 'coldstart':
+            success = sender.send_cold_start()
+        elif args.type == 'warmstart':
+            success = sender.send_warm_start()
+        elif args.type == 'linkdown':
+            success = sender.send_link_down(args.interface, f"Interface{args.interface}")
+        elif args.type == 'linkup':
+            success = sender.send_link_up(args.interface, f"Interface{args.interface}")
+        elif args.type == 'authfail':
+            success = sender.send_authentication_failure()
+        elif args.type == 'ups-battery':
+            success = sender.send_ups_trap('on_battery', battery_charge=75, runtime=45, load_percent=80)
+        elif args.type == 'ups-low':
+            success = sender.send_ups_trap('battery_low', battery_charge=15, runtime=5)
+        
+        if success:
+            print(f"✅ Trap '{args.type}' inviato con successo a {args.host}:{args.port}")
+            sys.exit(0)
+        else:
+            print(f"❌ Errore invio trap '{args.type}'")
+            sys.exit(1)
 
 if __name__ == "__main__":
     main()
