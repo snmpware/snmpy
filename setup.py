@@ -15,18 +15,17 @@ with open("requirements.txt", "r", encoding="utf-8") as fh:
     requirements = [line.strip() for line in fh if line.strip() and not line.startswith("#")]
 
 setup(
-    name="advancedsnmp",
+    name="snmpy",
     version="1.0.0",
     author="Advanced SNMP Library Team",
-    author_email="info@example.com",  # Sostituisci con la tua email
-    description="Una libreria SNMP completa per Python con supporto v1, v2c e v3",
+    description="A complete SNMP library for Python with support for v1, v2c, and v3",
     long_description=long_description,
     long_description_content_type="text/markdown",
     url="https://github.com/yourusername/advancedsnmp",  # Sostituisci con il tuo repository
     project_urls={
-        "Bug Reports": "https://github.com/yourusername/advancedsnmp/issues",
-        "Source": "https://github.com/yourusername/advancedsnmp",
-        "Documentation": "https://github.com/yourusername/advancedsnmp#readme",
+        "Bug Reports": "https://github.com/snmpware/snmpy/issues",
+        "Source": "https://github.com/snmpware/snmpy",
+        "Documentation": "https://github.com/snmpware/snmpy#readme",
     },
     classifiers=[
         "Development Status :: 5 - Production/Stable",
