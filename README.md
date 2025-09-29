@@ -39,7 +39,7 @@ pip install pycryptodome
 ```python
 from snmpy import SnmpClient, SnmpVersion
 
-# Crea client SNMP
+# Create SNMP client
 client = SnmpClient(
     host="192.168.1.1",
     port=161,
@@ -47,11 +47,11 @@ client = SnmpClient(
     version=SnmpVersion.V2C
 )
 
-# GET singolo
+# Single GET
 result = client.get("1.3.6.1.2.1.1.1.0")  # sysDescr
 print(result)
 
-# GET multiplo
+# Multiple GET
 oids = ["1.3.6.1.2.1.1.1.0", "1.3.6.1.2.1.1.3.0"]
 results = client.get_multiple(oids)
 for oid, value in results.items():
@@ -63,7 +63,7 @@ for oid, value in results.items():
 ```python
 from snmpy import SnmpClient, SnmpVersion, SnmpV3User, SnmpV3AuthProtocol, SnmpV3PrivProtocol
 
-# Crea utente SNMPv3
+# Create SNMPv3 user
 v3_user = SnmpV3User(
     username="admin",
     auth_protocol=SnmpV3AuthProtocol.SHA,
@@ -72,7 +72,7 @@ v3_user = SnmpV3User(
     priv_password="privpass456"
 )
 
-# Crea client SNMPv3
+# Create SNMPv3 client
 client = SnmpClient(
     host="192.168.1.1",
     port=161,
@@ -101,31 +101,63 @@ ups = UpsMonitor(
     version=SnmpVersion.V2C
 )
 
-# Test connessione
+# Test connection
 if ups.test_connection():
-    print("✅ Connessione OK")
+    print("✅ Connection OK")
 
-# Rileva tipo di UPS
+# Detect UPS type
 ups_type = ups.detect_ups_type()  # "APC", "Eaton", "CyberPower", etc.
 
-# Ottieni informazioni
+# Get information
 info = ups.get_ups_info()
-print(f"Carico: {info['load']}%")
-print(f"Batteria: {info['battery_charge']}%")
-print(f"Tensione in: {info['input_voltage']}V")
-print(f"Tensione out: {info['output_voltage']}V")
-print(f"Temperatura: {info['temperature']}°C")
-print(f"Runtime: {info['estimated_runtime']} minuti")
+print(f"Load: {info['load']}%")
+print(f"Battery: {info['battery_charge']}%")
+print(f"Input voltage: {info['input_voltage']}V")
+print(f"Output voltage: {info['output_voltage']}V")
+print(f"Temperature: {info['temperature']}°C")
+print(f"Runtime: {info['estimated_runtime']} minutes")
 
-# Interpreta stato
+# Interpret status
 status = ups.interpret_status(info['ups_status'])
-print(f"Stato: {status}")  # "Normale", "Batteria", etc.
+print(f"Status: {status}")  # "Normal", "Battery", etc.
 
-# Monitor continuo con visualizzazione
-ups.monitor(interval=5.0)  # Aggiorna ogni 5 secondi
+# Continuous monitoring with display
+ups.monitor(interval=5.0)  # Update every 5 seconds
 
-# SNMP Walk su MIB UPS
-ups_data = ups.walk_mib("1.3.6.1.2.1.33")  # UPS-MIB completo
+# SNMP Walk on UPS MIB
+ups_data = ups.walk_mib("1.3.6.1.2.1.33")  # Complete UPS-MIB
+```
+
+---
+
+### 📤 SNMP Traps
+
+```python
+from snmpy import SnmpTrapSender, SnmpVersion, SnmpOctetString, SnmpInteger
+
+# Create sender
+sender = SnmpTrapSender(
+    trap_host="192.168.1.50",
+    trap_port=162,
+    community="public",
+    version=SnmpVersion.V2C
+)
+
+# Standard traps
+sender.send_cold_start()
+sender.send_link_down(if_index=1, if_descr="eth0")
+
+# Custom trap
+sender.send_test_trap("System under maintenance")
+
+# UPS trap
+sender.send_ups_trap(
+    'on_battery',
+    battery_charge=75,
+    runtime=45,
+    load_percent=80,
+    message="Power failure"
+)
 ```
 
 ---
@@ -139,14 +171,23 @@ ups_data = ups.walk_mib("1.3.6.1.2.1.33")  # UPS-MIB completo
 
 ---
 
-## 🛠 Features
+---
 
-* SNMP GET / WALK / SET
-* SNMPv1, v2c, v3 support
-* TRAP sending & decoding
-* UPS monitoring (APC / RFC-1628)
-* No C libraries or compiled extensions
-* Python 3.6+
+## 🛠️ Utilities
+
+```python
+from snmpy import decode_snmp_hex
+
+# Decode hex dump (e.g. from Wireshark)
+hex_packet = "302c020101040670..."
+result = decode_snmp_hex(hex_packet, return_dict=True)
+
+print(f"Version: {result['version']}")
+print(f"Community: {result['community']}")
+print(f"PDU Type: {result['pdu_type']}")
+for vb in result['varbinds']:
+    print(f"  {vb['oid']} = {vb['value']}")
+```
 
 ---
 
@@ -161,7 +202,23 @@ ups_data = ups.walk_mib("1.3.6.1.2.1.33")  # UPS-MIB completo
 ## 📦 CLI Tool
 
 ```bash
-snmpy get 192.168.1.1 -c public -o 1.3.6.1.2.1.1.1.0
+# Monitor UPS
+python snmpy.py monitor --ip 192.168.1.100 --interval 5
+
+# Test connection
+python snmpy.py monitor --ip 192.168.1.100 --test
+
+# SNMP Walk
+python snmpy.py monitor --ip 192.168.1.100 --walk
+
+# Send trap
+python snmpy.py trap --host 192.168.1.50 --type coldstart
+
+# UPS trap
+python snmpy.py trap --host 192.168.1.50 --type ups-battery
+
+# Interactive test (guided menu)
+python snmpy.py
 ```
 
 ---
