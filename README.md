@@ -19,7 +19,9 @@ It supports:
 ## 🔧 Installation
 
 ```bash
-pip install snmpy
+git clone https://github.com/snmpware/snmpy.git
+cd snmpy
+python3 setup.py install
 ````
 
 Optional (for SNMPv3 with encryption):
