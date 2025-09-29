@@ -37,28 +37,51 @@ pip install pycryptodome
 ### SNMPv2c GET
 
 ```python
-from snmpy import SNMP
+from snmpy import SnmpClient, SnmpVersion
 
-snmp = SNMP(host="192.168.1.1", community="public")
-result = snmp.get("1.3.6.1.2.1.1.1.0")  # sysDescr
+# Crea client SNMP
+client = SnmpClient(
+    host="192.168.1.1",
+    port=161,
+    community="public",
+    version=SnmpVersion.V2C
+)
+
+# GET singolo
+result = client.get("1.3.6.1.2.1.1.1.0")  # sysDescr
 print(result)
+
+# GET multiplo
+oids = ["1.3.6.1.2.1.1.1.0", "1.3.6.1.2.1.1.3.0"]
+results = client.get_multiple(oids)
+for oid, value in results.items():
+    print(f"{oid} = {value}")
 ```
 
 ### SNMPv3 GET
 
 ```python
-from snmpy import SNMP
+from snmpy import SnmpClient, SnmpVersion, SnmpV3User, SnmpV3AuthProtocol, SnmpV3PrivProtocol
 
-snmp = SNMP(
-    host="192.168.1.1",
-    version=3,
-    username="user",
-    authkey="password",
-    privkey="secret",
-    authproto="sha",
-    privproto="aes",
+# Crea utente SNMPv3
+v3_user = SnmpV3User(
+    username="admin",
+    auth_protocol=SnmpV3AuthProtocol.SHA,
+    auth_password="authpass123",
+    priv_protocol=SnmpV3PrivProtocol.AES128,
+    priv_password="privpass456"
 )
-print(snmp.get("1.3.6.1.2.1.1.1.0"))
+
+# Crea client SNMPv3
+client = SnmpClient(
+    host="192.168.1.1",
+    port=161,
+    version=SnmpVersion.V3,
+    v3_user=v3_user
+)
+
+result = client.get("1.3.6.1.2.1.1.1.0")
+print(result)
 ```
 
 > More examples (WALK, SET, TRAPs) available in the `examples/` folder.
@@ -68,12 +91,41 @@ print(snmp.get("1.3.6.1.2.1.1.1.0"))
 ## ⚡ UPS Monitoring Example
 
 ```python
-from snmpy.ups import UPS
+from snmpy import UpsMonitor, SnmpVersion
 
-ups = UPS("192.168.1.100", community="public")
-print(ups.status())       # ON LINE / ON BATTERY
-print(ups.battery())      # Battery charge %
-print(ups.voltage())      # Input/output voltage
+# Monitor UPS v2c
+ups = UpsMonitor(
+    host="192.168.1.100",
+    port=161,
+    community="public",
+    version=SnmpVersion.V2C
+)
+
+# Test connessione
+if ups.test_connection():
+    print("✅ Connessione OK")
+
+# Rileva tipo di UPS
+ups_type = ups.detect_ups_type()  # "APC", "Eaton", "CyberPower", etc.
+
+# Ottieni informazioni
+info = ups.get_ups_info()
+print(f"Carico: {info['load']}%")
+print(f"Batteria: {info['battery_charge']}%")
+print(f"Tensione in: {info['input_voltage']}V")
+print(f"Tensione out: {info['output_voltage']}V")
+print(f"Temperatura: {info['temperature']}°C")
+print(f"Runtime: {info['estimated_runtime']} minuti")
+
+# Interpreta stato
+status = ups.interpret_status(info['ups_status'])
+print(f"Stato: {status}")  # "Normale", "Batteria", etc.
+
+# Monitor continuo con visualizzazione
+ups.monitor(interval=5.0)  # Aggiorna ogni 5 secondi
+
+# SNMP Walk su MIB UPS
+ups_data = ups.walk_mib("1.3.6.1.2.1.33")  # UPS-MIB completo
 ```
 
 ---
