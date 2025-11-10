@@ -1,4 +1,6 @@
-# SNMPY – Pure Python SNMP Library with Zero Core Dependencies
+<p align="center">
+  <img src="snmpy.png" alt="PolymCP Logo" width="400"/>
+</p>
 
 **snmpy** is a lightweight, pure Python library for SNMP v1/v2c/v3, built from scratch with **no external dependencies** for core functionality.  
 
